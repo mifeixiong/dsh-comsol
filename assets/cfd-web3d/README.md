@@ -3,6 +3,10 @@
 CFD 结果 → 网页里能转的 3D（glTF/GLB + three.js）。这是 DSH 的 agent skill：
 **SKILL.md 是唯一权威**，README 只讲怎么用这套脚本。
 
+![preview](./preview.png)
+
+> 上图：极地号 0° 风载，中线面流线（速度着色）+ 船体，three.js 实时渲染。
+
 ## 内容
 
 | 路径 | 说明 |
