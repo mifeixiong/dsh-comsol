@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFD 结果 · three.js 查看器</title>
+<style>
+  :root { --bg:#0a0d12; --fg:#e8eef6; --dim:#8fa3bb; --line:#1e2a3a; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:13px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; overflow:hidden; }
+  #app { position:fixed; inset:0; }
+  .panel { position:absolute; background:rgba(13,18,26,.82); border:1px solid var(--line);
+    border-radius:10px; backdrop-filter:blur(8px); }
+  #hud { top:14px; left:14px; padding:12px 14px; min-width:236px; }
+  #hud h1 { margin:0 0 8px; font-size:13px; font-weight:600; letter-spacing:.04em; color:#cfe0f5; }
+  #hud .row { display:flex; justify-content:space-between; gap:10px; color:var(--dim); }
+  #hud .row b { color:var(--fg); font-variant-numeric:tabular-nums; }
+  #legend { right:14px; top:14px; padding:12px 14px 12px 10px; width:150px; display:none; }
+  #legend .title { font-size:11px; color:var(--dim); margin-bottom:8px; }
+  #bar { display:flex; gap:6px; height:170px; }
+  #grad { width:14px; border-radius:3px; border:1px solid #2b3a4d; }
+  #ticks { display:flex; flex-direction:column; justify-content:space-between; font-size:10px; color:#9fb3c8; }
+  #tools { bottom:14px; left:14px; padding:8px; display:flex; gap:6px; flex-wrap:wrap; }
+  button { background:#16202d; color:#c8d8ea; border:1px solid #24344a; border-radius:7px;
+    padding:6px 10px; font-size:12px; cursor:pointer; font-family:inherit; }
+  button:hover { background:#1d2b3c; }
+  button.on { background:#1f4d63; border-color:#2f7a95; color:#dff3fb; }
+  #cut { width:120px; accent-color:#2f7a95; }
+  #status { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:#8fa3bb; text-align:center; }
+  #status.err { color:#ff9a9a; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud" class="panel">
+  <h1>CFD → WEB 3D</h1>
+  <div class="row"><span>图元</span><b id="s-prim">—</b></div>
+  <div class="row"><span>顶点 / 三角面</span><b id="s-geo">—</b></div>
+  <div class="row"><span>文件体积</span><b id="s-size">—</b></div>
+  <div class="row"><span>帧率</span><b id="s-fps">—</b></div>
+</div>
+<div id="legend" class="panel">
+  <div class="title" id="lg-title">标量</div>
+  <div id="bar"><div id="grad"></div><div id="ticks"></div></div>
+</div>
+<div id="tools" class="panel">
+  <button id="b-rot">自动旋转</button>
+  <button id="b-lit" class="on">受光渲染</button>
+  <label style="display:flex;align-items:center;gap:6px;color:#8fa3bb;font-size:12px;">
+    剖切 <input id="cut" type="range" min="0" max="1" step="0.01" value="1">
+  </label>
+  <button id="b-reset">重置视角</button>
+  <button id="b-png">导出 PNG</button>
+</div>
+<div id="status">正在加载…</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const fatal = (m) => { statusEl.style.display = 'block'; statusEl.className = 'err'; statusEl.textContent = '加载失败：' + m; };
+addEventListener('error', (e) => fatal(e.message || '未知错误'));
+addEventListener('unhandledrejection', (e) => fatal(String((e.reason && e.reason.message) || e.reason)));
+
+const params = new URLSearchParams(location.search);
+const srcUrl = params.get('src') || 'scene.glb';
+// ?axes=zup（CFD 的 Z-up 裸数据）| none（官方导出器已转好，默认）| vtk（(x,y,z)->(y,z,x)）
+const axisMode = params.get('axes') || 'none';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.localClippingEnabled = true;
+renderer.setClearColor(0x0a0d12, 1);
+$('app').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.05, 400);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xdfefff, 0x101820, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(6, 9, 8); scene.add(key);
+const rim = new THREE.DirectionalLight(0x9fd4ff, 0.5); rim.position.set(-8, -4, -6); scene.add(rim);
+
+const group = new THREE.Group();
+scene.add(group);
+const clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1e6);
+
+// meta：?meta= 显式指定；否则自动找同名 .meta.json（field_streamlines.py 的输出约定）
+let meta = null;
+const metaUrl = params.get('meta') || srcUrl.replace(/\.glb($|\?)/i, '.meta.json');
+try {
+  const r = await fetch(metaUrl);
+  if (r.ok) meta = await r.json();
+} catch { /* 没有图例信息也能看 */ }
+
+const gltf = await new GLTFLoader().loadAsync(srcUrl);
+const nodes = [];
+gltf.scene.traverse((o) => { if (o.isMesh || o.isLine || o.isPoints) nodes.push(o); });
+if (!nodes.length) throw new Error('glb 里没有可渲染图元');
+
+const matLit = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.0, clippingPlanes: [clipPlane] });
+const matFlat = new THREE.MeshBasicMaterial({ vertexColors: true, clippingPlanes: [clipPlane] });
+let hasMesh = false;
+for (const o of nodes) {
+  if (o.isMesh) {
+    hasMesh = true;
+    if (o.material) { o.material.dispose(); }
+    o.material = matLit;
+  } else {
+    if (o.material) { o.material.side = THREE.DoubleSide; o.material.needsUpdate = true; }
+  }
+  o.removeFromParent();
+  group.add(o);
+}
+
+if (axisMode === 'vtk') {
+  group.setRotationFromMatrix(new THREE.Matrix4().set(0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1));
+} else if (axisMode === 'zup') {
+  group.rotation.set(-Math.PI / 2, 0, 0);
+}
+
+// ---------------------------------------------------------------- 取景
+const box = new THREE.Box3().setFromObject(group);
+const size = box.getSize(new THREE.Vector3());
+const center = box.getCenter(new THREE.Vector3());
+
+function frameCamera() {
+  const radius = 0.5 * Math.hypot(size.x, size.y, size.z);
+  const fitH = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  const fitW = fitH / camera.aspect;
+  const dist = 1.05 * Math.max(fitH, fitW);
+  const dir = new THREE.Vector3(0.62, 0.42, 0.86).normalize();
+  const tgt = axisMode === 'vtk' ? new THREE.Vector3(center.y, center.z, center.x) : center.clone();
+  camera.position.copy(tgt).add(dir.multiplyScalar(dist));
+  camera.near = Math.max(dist / 2000, 1e-3);      // 几厘米的试件和几百米的船域都要能看
+  camera.far = Math.max(dist * 20, 100);
+  controls.target.copy(tgt);
+  controls.update();
+  camera.updateProjectionMatrix();
+}
+frameCamera();
+
+// ---------------------------------------------------------------- HUD / 图例
+let nVert = 0, nPrim = 0, nTri = 0;
+for (const o of nodes) {
+  const g = o.geometry;
+  nVert += g.attributes.position.count;
+  const c = g.index ? g.index.count : g.attributes.position.count;
+  nPrim += c / (o.isLine ? 2 : o.isPoints ? 1 : 3);
+  if (o.isMesh) nTri += c / 3;
+}
+$('s-prim').textContent = nodes.length + ' 个';
+$('s-geo').textContent = nVert.toLocaleString() + ' / ' + Math.round(nTri).toLocaleString();
+$('s-size').textContent = meta ? (meta.glb_bytes / 1048576).toFixed(2) + ' MiB' : '—';
+statusEl.style.display = 'none';
+
+if (meta && meta.range) {
+  const [v0, v1] = meta.range;
+  const stops = (meta.colormap_stops || []).map(([r, g, b]) => 'rgb(' + [r, g, b].join(',') + ')');
+  if (stops.length > 1) {
+    $('legend').style.display = 'block';
+    $('lg-title').textContent = (meta.scalar || 'scalar') + ' (' + ((meta.units && meta.units.velocity) || '') + ')';
+    $('grad').style.background = 'linear-gradient(to top,' +
+      stops.map((c, i) => c + ' ' + (100 * i / (stops.length - 1)).toFixed(1) + '%').join(',') + ')';
+    const f = meta.colormap === 'viridis' ? [1, 0.75, 0.5, 0.25, 0] : [1, 0.5, 0];
+    $('ticks').innerHTML = f.map((t) => '<span>' + (v0 + (v1 - v0) * t).toFixed(2) + '</span>').join('');
+  }
+}
+
+// ---------------------------------------------------------------- 交互
+let fps = 0, frames = 0, last = performance.now();
+$('b-rot').onclick = (e) => { controls.autoRotate = !controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); };
+$('b-lit').onclick = (e) => {
+  if (!hasMesh) return;
+  const on = !e.currentTarget.classList.contains('on');
+  e.currentTarget.classList.toggle('on', on);
+  const m = on ? matLit : matFlat;
+  group.traverse((o) => { if (o.isMesh) o.material = m; });
+};
+$('cut').oninput = (e) => {
+  const t = parseFloat(e.target.value);
+  clipPlane.constant = -0.05 + t * (size.x * 1.05);
+};
+$('b-reset').onclick = () => frameCamera();
+$('b-png').onclick = () => {
+  renderer.render(scene, camera);
+  const a = document.createElement('a');
+  a.href = renderer.domElement.toDataURL('image/png');
+  a.download = 'cfd-scene.png';
+  a.click();
+};
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+  frames++;
+  const now = performance.now();
+  if (now - last > 500) {
+    fps = Math.round(frames * 1000 / (now - last));
+    $('s-fps').textContent = fps > 0 ? fps + ' fps' : '—';
+    frames = 0; last = now;
+  }
+});
+window.__APP_READY__ = true;
+console.log('READY', JSON.stringify({ nodes: nodes.length, verts: nVert, tris: Math.round(nTri) }));
+</script>
+</body>
+</html>

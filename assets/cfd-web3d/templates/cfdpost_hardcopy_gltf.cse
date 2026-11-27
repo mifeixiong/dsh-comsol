@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------
+# cfdpost_hardcopy_gltf.cse —— CFD-Post：把当前视图导成 glTF / GLB
+#
+# 语法已实测通过（ANSYS 2025 R2，cfdpost -batch-software-rendering）：
+#   HARDCOPY 块 + > print；导出的 glTF 里 asset.application = "ANSYS CFD-Post"
+#
+# 关键：
+#   Hardcopy Format = gltf  -> 文本 glTF（首字节 '{'）
+#   Hardcopy Format = glb2  -> 真正的二进制 GLB（首字节 'glTF'，体积更小）
+#   只导出 3D 视图里的图形对象；图例/标题不会带出去。
+#   按视口导出多个 scene（Viewport1..4），网页端默认只用 scenes[0]。
+#
+# 用法：
+#   "C:\Program Files\ANSYS\v252\CFD-Post\bin\cfdpost.exe" -batch-software-rendering <本文件>
+# ---------------------------------------------------------------
+
+# 1) 载入结果（路径换成你的算例；GUI 操作后 File -> Write -> Session 可录制出确切写法）
+# > load filename=C:/cases/your.cas, ...
+# > load filename=C:/cases/your.dat, ...
+
+# 2) 建流线对象（GUI: Insert -> Streamline；Type = 3D Streamline，Variable = Velocity）
+
+# 3) 硬拷贝并打印
+HARDCOPY:
+  Hardcopy Format = glb2
+  Hardcopy Filename = E:/out/streamlines.glb
+END
+
+> print

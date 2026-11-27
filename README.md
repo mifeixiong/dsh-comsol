@@ -5,9 +5,20 @@ open a model in the visible desktop, read/modify parameters, rebuild the mesh,
 tune the solver, run steady **or time-dependent** studies with live progress,
 load results into the desktop plot, evaluate numbers and export images.
 
-Toggling the plugin in the DSH plugin panel enables/disables the `comsol-dsh`
-skill for every workspace; the skill is the single entry point and the plugin
-carries everything it needs.
+Toggling the plugin in the DSH plugin panel enables/disables **both** skills for
+every workspace; the plugin carries everything they need.
+
+| Skill | What it does | Assets |
+|---|---|---|
+| `comsol-dsh` | drive COMSOL end to end (open, edit, mesh, solve, post-process) | `assets/comsol-dsh/` + `assets/engine/` |
+| `cfd-web3d` | turn CFD results into web 3D - native glTF/GLB export, streamline tubes, three.js viewer | `assets/cfd-web3d/` |
+
+`cfd-web3d` is optional in practice: it only loads when the user asks to put a
+3D result on a web page, make an interactive view, or export glTF. It needs
+nothing but **Python 3.10+ with numpy** and **Node 18+** (for the static
+server); three.js comes from a CDN. It also covers the ANSYS side (CFD-Post
+`HARDCOPY ... glb2`) and generic `.npz`/`.vtk` fields, so it is useful
+without COMSOL installed.
 
 ## Install (any DSH user)
 

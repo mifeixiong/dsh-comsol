@@ -2,7 +2,7 @@
   "name": "dsh-comsol",
   "version": "1.1.1",
   "type": "module",
-  "description": "COMSOL Multiphysics workflow for DSH: the comsol-dsh agent skill (open a model in the desktop, edit parameters, rebuild the mesh, tune the solver, run steady or time-dependent studies with live progress, load results into the desktop plot, evaluate and export) on the bundled comsol-mcp engine. Toggle the plugin to enable/disable the skill everywhere.",
+  "description": "COMSOL Multiphysics workflows for DSH, two skills in one bundle: comsol-dsh (open a model in the desktop, edit parameters, rebuild the mesh, tune the solver, run steady or time-dependent studies with live progress, load results into the desktop plot, evaluate and export) on the bundled comsol-mcp engine, plus cfd-web3d (turn CFD results into web 3D - native glTF/GLB export, streamline tubes, three.js viewer). Toggle the plugin to enable/disable both skills everywhere.",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
@@ -23,7 +23,11 @@
     "multiphysics",
     "simulation",
     "mph",
-    "transient"
+    "transient",
+    "cfd",
+    "streamlines",
+    "gltf",
+    "threejs"
   ],
   "dsh": {
     "bundle": {
